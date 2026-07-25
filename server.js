@@ -1,9 +1,47 @@
-// server.js – WebSocket tracker for P2P file transfer
+// server.js – WebSocket tracker with HTTP health check
 const WebSocket = require('ws');
 const http = require('http');
 const crypto = require('crypto');
 
-const server = http.createServer();
+// Create HTTP server
+const server = http.createServer((req, res) => {
+    // Health check endpoint for Render
+    if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+            status: 'ok', 
+            peers: peers.size,
+            senders: fileMetadata.size,
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime()
+        }));
+        return;
+    }
+    
+    // Simple status page
+    if (req.url === '/') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`
+            <html>
+                <head><title>P2P Tracker Server</title></head>
+                <body>
+                    <h1>P2P File Transfer Tracker</h1>
+                    <p>Status: Running</p>
+                    <p>Connected Peers: ${peers.size}</p>
+                    <p>Active Senders: ${fileMetadata.size}</p>
+                    <p>WebSocket Endpoint: wss://${req.headers.host}</p>
+                </body>
+            </html>
+        `);
+        return;
+    }
+    
+    // 404 for other routes
+    res.writeHead(404);
+    res.end('Not Found');
+});
+
+// Attach WebSocket server to the same HTTP server
 const wss = new WebSocket.Server({ server });
 
 // Store peers and their metadata
@@ -16,7 +54,7 @@ wss.on('connection', (ws, req) => {
     const peerId = crypto.randomBytes(16).toString('hex');
     let peerType = null;
 
-    console.log(`🟢 New connection: ${peerId} from ${req.socket.remoteAddress}`);
+    console.log(`🟢 New WebSocket connection: ${peerId} from ${req.socket.remoteAddress}`);
 
     ws.on('message', (message) => {
         try {
@@ -33,10 +71,15 @@ wss.on('connection', (ws, req) => {
                         });
                         peers.set(peerId, { ws, type: 'sender', info: data.info || {} });
                         console.log(`📤 Sender registered: ${peerId} with ${data.files.length} files`);
-                        ws.send(JSON.stringify({ type: 'registered', status: 'success', peerId }));
+                        ws.send(JSON.stringify({ 
+                            type: 'registered', 
+                            status: 'success', 
+                            peerId 
+                        }));
                     } else if (peerType === 'receiver') {
                         peers.set(peerId, { ws, type: 'receiver' });
                         console.log(`📥 Receiver registered: ${peerId}`);
+                        
                         // Send list of available senders
                         const senders = [];
                         for (const [id, meta] of fileMetadata.entries()) {
@@ -49,7 +92,10 @@ wss.on('connection', (ws, req) => {
                                 });
                             }
                         }
-                        ws.send(JSON.stringify({ type: 'available_senders', senders }));
+                        ws.send(JSON.stringify({ 
+                            type: 'available_senders', 
+                            senders 
+                        }));
                     }
                     break;
 
@@ -64,9 +110,15 @@ wss.on('connection', (ws, req) => {
                             files: meta.files,
                             hash: meta.hash
                         }));
-                        ws.send(JSON.stringify({ type: 'download_requested', status: 'pending' }));
+                        ws.send(JSON.stringify({ 
+                            type: 'download_requested', 
+                            status: 'pending' 
+                        }));
                     } else {
-                        ws.send(JSON.stringify({ type: 'error', message: 'Sender not found' }));
+                        ws.send(JSON.stringify({ 
+                            type: 'error', 
+                            message: 'Sender not found' 
+                        }));
                     }
                     break;
 
@@ -80,12 +132,18 @@ wss.on('connection', (ws, req) => {
                             signal: data.signal
                         }));
                     } else {
-                        ws.send(JSON.stringify({ type: 'error', message: 'Target peer not found' }));
+                        ws.send(JSON.stringify({ 
+                            type: 'error', 
+                            message: 'Target peer not found' 
+                        }));
                     }
                     break;
 
                 case 'heartbeat':
-                    ws.send(JSON.stringify({ type: 'heartbeat_ack', timestamp: Date.now() }));
+                    ws.send(JSON.stringify({ 
+                        type: 'heartbeat_ack', 
+                        timestamp: Date.now() 
+                    }));
                     break;
 
                 case 'disconnect':
@@ -95,15 +153,22 @@ wss.on('connection', (ws, req) => {
 
                 default:
                     console.warn(`Unknown message type: ${data.type}`);
+                    ws.send(JSON.stringify({ 
+                        type: 'error', 
+                        message: 'Unknown message type' 
+                    }));
             }
         } catch (err) {
             console.error('Error processing message:', err);
-            ws.send(JSON.stringify({ type: 'error', message: 'Invalid message' }));
+            ws.send(JSON.stringify({ 
+                type: 'error', 
+                message: 'Invalid message format' 
+            }));
         }
     });
 
     ws.on('close', () => {
-        console.log(`🔴 Connection closed: ${peerId}`);
+        console.log(`🔴 WebSocket connection closed: ${peerId}`);
         cleanupPeer(peerId);
     });
 
@@ -123,7 +188,16 @@ setInterval(() => {
     const now = Date.now();
     for (const [id, peer] of peers) {
         if (peer.ws.readyState === WebSocket.CLOSED) {
+            console.log(`🧹 Cleaning up stale peer: ${id}`);
             peers.delete(id);
+            fileMetadata.delete(id);
+        }
+    }
+    // Clean up old file metadata (older than 1 hour)
+    const oneHourAgo = Date.now() - 3600000;
+    for (const [id, meta] of fileMetadata.entries()) {
+        if (meta.timestamp < oneHourAgo) {
+            console.log(`🧹 Cleaning up old file metadata: ${id}`);
             fileMetadata.delete(id);
         }
     }
@@ -131,6 +205,9 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Tracker server running on ws://localhost:${PORT}`);
-    console.log(`   Ready to accept connections`);
+    console.log(`🚀 P2P Tracker server running on port ${PORT}`);
+    console.log(`   WebSocket endpoint: ws://localhost:${PORT}`);
+    console.log(`   Health check: http://localhost:${PORT}/health`);
+    console.log(`   Status page: http://localhost:${PORT}/`);
+    console.log(`   Ready to accept WebSocket connections`);
 });
