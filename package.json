@@ -1,7 +1,7 @@
 {
-  "name": "p2p-file-transfer",
+  "name": "p2p-tracker",
   "version": "1.0.0",
-  "description": "P2P file transfer tracker server with WebSocket",
+  "description": "WebSocket tracker server for P2P file transfer",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,5 +11,8 @@
   },
   "engines": {
     "node": ">=16.0.0"
-  }
+  },
+  "keywords": ["p2p", "websocket", "tracker", "file-transfer"],
+  "author": "",
+  "license": "MIT"
 }
