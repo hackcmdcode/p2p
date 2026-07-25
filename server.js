@@ -20,10 +20,21 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocket.Server({ server });
 
-const peers = new Map();          // peerId -> { ws, type, ip }
-const fileMetadata = new Map();  // senderId -> { files, hash, totalSize }
+const peers = new Map();          // peerId -> { ws, type, ip, lastSeen }
+const fileMetadata = new Map();  // senderId -> { files, hash, totalSize, timestamp }
 
 console.log('🔍 P2P TCP Tracker started');
+
+// Heartbeat check every 30s
+setInterval(() => {
+    const now = Date.now();
+    for (const [id, peer] of peers.entries()) {
+        if (now - peer.lastSeen > 60000) { // 60s timeout
+            console.log(`⏰ Peer ${id} timed out`);
+            cleanupPeer(id);
+        }
+    }
+}, 30000);
 
 wss.on('connection', (ws, req) => {
     const peerId = crypto.randomBytes(16).toString('hex');
@@ -35,18 +46,24 @@ wss.on('connection', (ws, req) => {
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
+            const now = Date.now();
+
+            // Update lastSeen for heartbeat
+            if (peers.has(peerId)) {
+                peers.get(peerId).lastSeen = now;
+            }
 
             // ---- Register ----
             if (data.type === 'register') {
                 peerType = data.peerType;
-                peers.set(peerId, { ws, type: peerType, ip: clientIp });
+                peers.set(peerId, { ws, type: peerType, ip: clientIp, lastSeen: now });
 
                 if (peerType === 'sender') {
                     fileMetadata.set(peerId, {
                         files: data.files,
                         hash: data.hash,
                         totalSize: data.totalSize,
-                        timestamp: Date.now()
+                        timestamp: now
                     });
                     console.log(`📤 Sender registered: ${peerId}`);
                 } else {
@@ -108,7 +125,7 @@ wss.on('connection', (ws, req) => {
             }
 
         } catch (err) {
-            console.error('Error:', err);
+            console.error('Error processing message:', err);
         }
     });
 
