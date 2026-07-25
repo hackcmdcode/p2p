@@ -1,7 +1,7 @@
 {
   "name": "p2p-file-transfer",
   "version": "1.0.0",
-  "description": "P2P file transfer tracker server",
+  "description": "P2P file transfer tracker server with WebSocket",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
