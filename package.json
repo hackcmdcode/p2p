@@ -1,16 +1,13 @@
 {
-  "name": "p2p-file-transfer",
+  "name": "p2p-tracker",
   "version": "1.0.0",
-  "description": "P2P file transfer with WebRTC",
+  "description": "WebSocket tracker server for P2P file transfer",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "sender": "node sender.js"
+    "start": "node server.js"
   },
   "dependencies": {
-    "ws": "^8.14.2",
-    "simple-peer": "^9.11.1",
-    "wrtc": "^0.4.7"
+    "ws": "^8.14.2"
   },
   "engines": {
     "node": "18.x"
